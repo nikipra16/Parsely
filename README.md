@@ -9,16 +9,6 @@ can be used by users to analyze shopping patterns.
 
 Parsely is an end-to-end ETL pipeline that processes grocery order gmails from various retailers to provide actionable insights into personal spending habits. The system automatically extracts order data, transforms it into structured format, and loads it into a database for analysis.
 
-## Features
-
-- **Automated Email Processing**: Extracts order data from Gmail receipts
-- **Multi-Store Support**: Handles different email formats from Instacart, DoorDash, and other retailers
-- **Smart Data Parsing**: Uses Beautiful Soup and regex patterns to parse various HTML structures
-- **Brand Recognition**: Leverages spaCy NLP for product name processing and brand extraction
-- **Web Dashboard**: Interactive Flask-based dashboard for spending analytics
-- **Performance Optimized**: MongoDB aggregation pipelines and lazy loading for efficient data processing
-- **Data Export**: CSV export functionality for external analysis
-
 ## Tech Stack
 
 - **Backend**: Python, Flask
