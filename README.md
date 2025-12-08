@@ -94,8 +94,7 @@ python web_app.py
 
 ### Making dashboards!
 You can export your grocery data to excel. I exported mine did some cleaning using power query and python (pandas and regex) and made dashboards.
-<img width="647" height="650" alt="tableau_parsely" src="https://github.com/user-attachments/assets/8705bd51-23d5-4957-8be0-b56187c7a628" />
-
+<img width="635" height="646" alt="tableau_parseley_charts" src="https://github.com/user-attachments/assets/9ea226fc-c08c-468d-b78a-0b673e8ad2ff" />
 
 ## Performance Optimizations (Current)
 
