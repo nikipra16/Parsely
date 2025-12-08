@@ -73,7 +73,6 @@ This will:
 ```bash
 python web_app.py
 ```
-Access the dashboard at `http://localhost:5002`
 
 
 ## ETL Pipeline
@@ -93,49 +92,10 @@ Access the dashboard at `http://localhost:5002`
 - **MongoDB Storage**: Stores processed data in structured collections
 - **Upsert Operations**: Updates existing orders or creates new ones
 
-[//]: # (## API Endpoints)
+### Making dashboards!
+You can export your grocery data to excel. I exported mine did some cleaning using power query and python (pandas and regex) and made dashboards.
+<img width="647" height="650" alt="tableau_parsely" src="https://github.com/user-attachments/assets/8705bd51-23d5-4957-8be0-b56187c7a628" />
 
-[//]: # ()
-[//]: # (- `GET /` - Main dashboard)
-
-[//]: # (- `GET /api/dashboard/stats` - Dashboard statistics)
-
-[//]: # (- `GET /api/orders/grocery` - Paginated grocery orders)
-
-[//]: # (- `GET /api/items/grocery` - Item analysis and statistics)
-
-[//]: # (- `POST /api/items/grocery/update` - Update item names)
-
-[//]: # (- `POST /api/items/grocery/merge` - Merge duplicate items)
-
-[//]: # (- `POST /api/items/grocery/delete` - Delete specific items)
-
-[//]: # (- `GET /api/export/csv` - Export data to CSV)
-
-## Data Schema
-
-### Order Document
-```json
-{
-  "items": [
-    {
-      "brand": "BRAND",
-      "name": "NAME",
-      "qty": 2,
-      "price": 3.50
-    }
-  ],
-  "totals": {
-    "total": 45.67,
-    "subtotal": 42.50,
-    "tax": 2.17
-  },
-  "category": "Grocery",
-  "store_name": "STORE",
-  "date": "2024-01-15 14:30:00",
-  "gmail_id": "abc123"
-}
-```
 
 ## Performance Optimizations (Current)
 
