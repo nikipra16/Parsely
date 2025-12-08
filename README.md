@@ -1,6 +1,6 @@
 # Parsely 
 
-STATUS: PoC
+STATUS: PoC (busy with finals)
 
 A personal grocery order tracking system that automatically processes gmail receipts to extract spending insights and 
 can be used by users to analyze shopping patterns.
