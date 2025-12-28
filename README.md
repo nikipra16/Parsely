@@ -1,6 +1,6 @@
 # Parsely 
 
-STATUS: PoC
+STATUS: PoC (busy with finals)
 
 A personal grocery order tracking system that automatically processes gmail receipts to extract spending insights and 
 can be used by users to analyze shopping patterns.
@@ -73,7 +73,6 @@ This will:
 ```bash
 python web_app.py
 ```
-Access the dashboard at `http://localhost:5002`
 
 
 ## ETL Pipeline
@@ -93,49 +92,9 @@ Access the dashboard at `http://localhost:5002`
 - **MongoDB Storage**: Stores processed data in structured collections
 - **Upsert Operations**: Updates existing orders or creates new ones
 
-[//]: # (## API Endpoints)
-
-[//]: # ()
-[//]: # (- `GET /` - Main dashboard)
-
-[//]: # (- `GET /api/dashboard/stats` - Dashboard statistics)
-
-[//]: # (- `GET /api/orders/grocery` - Paginated grocery orders)
-
-[//]: # (- `GET /api/items/grocery` - Item analysis and statistics)
-
-[//]: # (- `POST /api/items/grocery/update` - Update item names)
-
-[//]: # (- `POST /api/items/grocery/merge` - Merge duplicate items)
-
-[//]: # (- `POST /api/items/grocery/delete` - Delete specific items)
-
-[//]: # (- `GET /api/export/csv` - Export data to CSV)
-
-## Data Schema
-
-### Order Document
-```json
-{
-  "items": [
-    {
-      "brand": "BRAND",
-      "name": "NAME",
-      "qty": 2,
-      "price": 3.50
-    }
-  ],
-  "totals": {
-    "total": 45.67,
-    "subtotal": 42.50,
-    "tax": 2.17
-  },
-  "category": "Grocery",
-  "store_name": "STORE",
-  "date": "2024-01-15 14:30:00",
-  "gmail_id": "abc123"
-}
-```
+### Making dashboards!
+You can export your grocery data to excel. I exported mine did some cleaning using power query and python (pandas and regex) and made dashboards.
+<img width="635" height="646" alt="tableau_parseley_charts" src="https://github.com/user-attachments/assets/9ea226fc-c08c-468d-b78a-0b673e8ad2ff" />
 
 ## Performance Optimizations (Current)
 
