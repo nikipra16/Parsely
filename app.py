@@ -3,11 +3,13 @@ import pickle
 import datetime
 import base64
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from bs4 import BeautifulSoup
 import json
 from email_parser import parse_email
+from mongo import test_connection, connect_to_mongodb
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
@@ -29,12 +31,26 @@ class Parsely:
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                except RefreshError as e:
+                    # Recover by deleting the token file and forcing a new OAuth consent flow.
+                    print(f"Token refresh failed ({e}). Re-authenticating...")
+                    try:
+                        os.remove(self.token_file)
+                    except OSError:
+                        pass
+                    # Fall back to interactive OAuth consent flow
+                    flow = InstalledAppFlow.from_client_secrets_file(self.cred_file, SCOPES)
+                    creds = flow.run_local_server(port=0)
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(self.cred_file, SCOPES)
                 creds = flow.run_local_server(port=0)
-            with open(self.token_file, 'wb') as token:
-                pickle.dump(creds, token)
+
+            # Only persist if we actually obtained credentials
+            if creds:
+                with open(self.token_file, 'wb') as token:
+                    pickle.dump(creds, token)
 
         self.service = build('gmail', 'v1', credentials=creds)
         print('Authenticated!')
@@ -97,14 +113,20 @@ class Parsely:
             'coming soon', 'announcement', 'new menu launch',
             'dashpass membership', 'membership paused', 'membership cancelled',
             'a world of food awaits', 'explore new restaurants',"discount",
-            'no-contact delivery'
+            'no-contact delivery','deals','deal','last chance','cancel','cancelled','issue',
+            'Apologies'
         ]
 
         if any(keyword in subject_lower for keyword in promo_keywords):
             return False
+
+        food_keywords = ['order confirmation', 'your instacart order receipt']
+
+        if any(keyword in subject_lower for keyword in promo_keywords):
+            return True
         return True
 
-
+    # main function
     def fetch_food_emails(self, months=24, stores=None, limit=100, save_to_file=False, start_date=None, end_date=None):
         """Fetch Gmail emails in batches of 100, going through multiple months.
         
@@ -120,7 +142,7 @@ class Parsely:
             raise Exception('Authenticate first!')
 
         if stores is None:
-            #OPTIMIZE
+            # TO DO OPTIMIZE
             stores = [
                 'walmart.com', 'loblaws.ca', 'costco.ca',
                 'instacart.com', 'tntsupermarket.com', 'doordash.com',
@@ -132,25 +154,36 @@ class Parsely:
         all_food_emails = []
         batch_size = 100
         total_processed = 0
+        seen_ids = set()
 
-        for month_offset in range(months):
+        # If the user provided an explicit date window, run exactly once.
+        # Otherwise, scan back in non-overlapping 30-day windows for `months`.
+        month_offsets = [0] if (start_date and end_date) else range(months)
+
+        for month_offset in month_offsets:
+            store_query = " OR ".join(stores)
+
             if start_date and end_date:
                 start_date_obj = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
                 end_date_obj = datetime.datetime.strptime(end_date, '%Y-%m-%d').date()
-                # print(f"\nProcessing date range: {start_date} to {end_date}")
-                store_query = " OR ".join(stores)
-                query = f"after:{start_date_obj.strftime('%Y/%m/%d')} before:{end_date_obj.strftime('%Y/%m/%d')} from:({store_query})"
+                print(f"\nProcessing date range: {start_date_obj} to {end_date_obj}")
+                query = (
+                    f"after:{start_date_obj.strftime('%Y/%m/%d')} "
+                    f"before:{end_date_obj.strftime('%Y/%m/%d')} "
+                    f"from:({store_query})"
+                )
             else:
-                end_date = datetime.date.today() - datetime.timedelta(days=30*month_offset)
-                start_date_obj = end_date - datetime.timedelta(days=30)
-                
-                start_date_str = end_date - datetime.timedelta(days=30)
-                end_date_str = datetime.date.today()
-                
-                print(f"\nProcessing month {month_offset + 1}/{months}: {start_date_str} to {end_date_str}")
-                
-                store_query = " OR ".join(stores)
-                query = f"after:{start_date_obj.strftime('%Y/%m/%d')} from:({store_query})"
+                # Non-overlapping 30-day windows: [window_start, window_end]
+                window_end = datetime.date.today() - datetime.timedelta(days=30 * month_offset)
+                window_start = window_end - datetime.timedelta(days=30)
+                window_end_exclusive = window_end + datetime.timedelta(days=1)
+
+                print(f"\nProcessing month {month_offset + 1}/{months}: {window_start} to {window_end}")
+                query = (
+                    f"after:{window_start.strftime('%Y/%m/%d')} "
+                    f"before:{window_end_exclusive.strftime('%Y/%m/%d')} "
+                    f"from:({store_query})"
+                )
 
             page_token = None
             month_emails = []
@@ -172,6 +205,9 @@ class Parsely:
                 # Process each email in this batch
                 for msg in messages:
                     try:
+                        if msg.get("id") in seen_ids:
+                            continue
+
                         email_data = self.service.users().messages().get(
                             userId='me',
                             id=msg['id'],
@@ -214,6 +250,7 @@ class Parsely:
                             "body": body,
                             "html_body": html_body
                         })
+                        seen_ids.add(msg["id"])
                         total_processed += 1
                         print(f"  Added food order: {subject[:50]}...")
                             
@@ -242,16 +279,23 @@ class Parsely:
         return all_food_emails
 
     def parse_and_categorize_emails(self, max_results=400, start_date=None, end_date=None):
-        """Fetch emails and parse them directly, returning categorized results
-        
-        Args:
-            max_results: Maximum number of emails to process
-            start_date: Start date in format 'YYYY-MM-DD' (optional)
-            end_date: End date in format 'YYYY-MM-DD' (optional)
-        """
+
         if self.service is None:
             print("Please authenticate first!")
             return []
+        
+        if not test_connection():
+            print("Please connect to MongoDB first!")
+            return []
+        client, db = connect_to_mongodb()
+        if client is None or db is None:
+            print("MongoDB connection failed!")
+            return []
+
+        grocery_collection = db["grocery_og"]
+        dining_collection = db["dining_orders"]
+        unknown_collection = db["unknown_orders"]
+
 
         emails = self.fetch_food_emails(limit=max_results, save_to_file=False, start_date=start_date, end_date=end_date)
         if not emails:
@@ -276,19 +320,27 @@ class Parsely:
                     print(f"  Skipped email with no items: {email.get('subject', '')[:50]}...")
                     continue
 
-                parsed_data['gmail_id'] = email['gmail_id']
-                parsed_data['date'] = email['date']
+                parsed_data['gmail_id'] = email.get('gmail_id')
+                parsed_data['date'] = email.get('date')
                 parsed_data['from'] = email.get('from', '')
+
+                gmail_id = parsed_data.get("gmail_id")
+                if not gmail_id:
+                    print("  Skipped email with missing gmail_id")
+                    continue
                 
                 category = parsed_data.get('category', 'Unknown')
                 category_counts[category] += 1
 
                 if category == "Grocery":
                     grocery_orders.append(parsed_data)
+                    grocery_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)
                 elif category == "Dining":
                     dining_orders.append(parsed_data)
+                    dining_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)
                 else:
                     unknown_orders.append(parsed_data)
+                    unknown_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)
                 
                 print(f"Parsed email {email['gmail_id']}: {len(parsed_data['items'])} items - {category}")
                 
@@ -350,10 +402,15 @@ if __name__ == "__main__":
     parsely = Parsely()
     parsely.authenticate()
 
+    # results = parsely.parse_and_categorize_emails(
+    #     max_results=400,
+    #     start_date="2024-01-01",
+    #     end_date="2025-04-05"
+    # )
     results = parsely.parse_and_categorize_emails(
         max_results=400,
-        start_date="2024-01-01",
-        end_date="2025-04-05"
+        start_date="2025-12-05",
+        end_date="2025-12-23"
     )
 
     if results:

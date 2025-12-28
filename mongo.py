@@ -35,7 +35,7 @@ def test_connection():
     return False
 
 
-def upsert_orders(file_path, collection_name):
+def upsert_orders_json(file_path, collection_name):
     # update or insert orders
     client, db = connect_to_mongodb()
     if client is None or db is None:
@@ -73,6 +73,15 @@ def upsert_orders(file_path, collection_name):
             updated_count += 1
             
     return True
+
+# def upsert_order(order: dict, collection_name: str):
+#     # update or insert orders
+#     collection = db[collection_name]
+#     if 'gmail_id' not in order:
+#         return False
+#     collection.replace_one({'gmail_id': order['gmail_id']}, order, upsert=True)
+#
+#     return True
 
 def export_to_csv(collection_name, output_file):
     client, db = connect_to_mongodb()
@@ -337,6 +346,7 @@ def validate_data_quality(collection_name='grocery_og'):
     
     return validation_report
 
+# used chatgpt for testing
 def print_validation_report(collection_name='grocery_og'):
     """Print a formatted validation report"""
     report = validate_data_quality(collection_name)
@@ -363,7 +373,8 @@ def print_validation_report(collection_name='grocery_og'):
 def main():
     # Test connection
     if test_connection():
-        upsert_orders('data/grocery_orders.json', 'grocery_og')
+        #TO DO optimize so, direct upload to db
+        # upsert_orders('data/grocery_orders.json', 'grocery_og')
         # upsert_orders('data/simulated_grocery_orders.json', 'grocery_orders')
         # upsert_orders('data/dining_orders.json', 'dining_orders')
         
