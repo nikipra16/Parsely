@@ -1,4 +1,5 @@
 import spacy
+from spacy.matcher import Matcher
 import re
 import json
 from bs4 import BeautifulSoup
@@ -14,6 +15,7 @@ from constants import (
 _nlp = None
 _grocery_brands = None
 _processed_brands = None
+_brand_matcher = None
 
 def get_nlp():
     global _nlp
@@ -37,6 +39,25 @@ def get_processed_brands():
         # Remove duplicates and sort by length (longest first)
         _processed_brands = sorted(list(set(all_brands)), key=len, reverse=True)
     return _processed_brands
+
+def get_brand_matcher():
+    """Create spaCy Matcher with brand patterns for NER-like brand recognition"""
+    global _brand_matcher
+    if _brand_matcher is None:
+        nlp = get_nlp()
+        _brand_matcher = Matcher(nlp.vocab)
+        
+        sorted_brands = get_processed_brands()
+        
+        # Add each brand as a pattern
+        for brand in sorted_brands:
+            # Tokenize brand using spaCy to get actual token structure
+            brand_doc = nlp(brand)
+            # Create pattern from actual tokens (handles apostrophes correctly)
+            pattern = [{"LOWER": token.lower_} for token in brand_doc]
+            _brand_matcher.add("BRAND", [pattern])
+    
+    return _brand_matcher
 
 def html_to_text(html_email):
     soup = BeautifulSoup(html_email, "html.parser")
@@ -244,19 +265,36 @@ def extract_grocery_store_name(from_email, subject):
     return "Unknown Grocery Store"
 
 def extract_brand_and_item(product_name, from_email="", subject="", is_dining=False, restaurant_name=""):
-    product_name = product_name.lower()
+    product_name_lower = product_name.lower()
     
-    # For DoorDash dining orders, use restaurant name as brand
     if is_dining and restaurant_name:
-        # Keep original product name with punctuation for dining items
         return restaurant_name, product_name
+
+    try:
+        doc = get_nlp()(product_name)
+        matcher = get_brand_matcher()
+        matches = matcher(doc)
+        
+        if matches:
+            # Get the longest match (most specific brand)
+            matches_sorted = sorted(matches, key=lambda x: x[2] - x[1], reverse=True)
+            start, end, label_id = matches_sorted[0]
+            matched_brand = doc[start:end].text
+            
+            sorted_brands = get_processed_brands()
+            for brand in sorted_brands:
+                if brand.lower() == matched_brand.lower():
+                    brand_length = len(matched_brand)
+                    item_name = product_name[brand_length:].strip()
+                    return brand, item_name
+    except Exception as e:
+        pass
 
     sorted_brands = get_processed_brands()
     
     for brand in sorted_brands:
-        # Normalize both strings for better matching
         brand_normalized = brand.lower().replace("'", "'").replace("'", "'").replace("`", "'")
-        product_normalized = product_name.replace("'", "'").replace("'", "'").replace("`", "'")
+        product_normalized = product_name_lower.replace("'", "'").replace("'", "'").replace("`", "'")
         
         if product_normalized.startswith(brand_normalized):
             brand_length = len(brand)

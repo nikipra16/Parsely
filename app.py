@@ -10,6 +10,8 @@ from bs4 import BeautifulSoup
 import json
 from email_parser import parse_email
 from mongo import test_connection, connect_to_mongodb
+from postgresDB import upsert_order, replace_order_items
+import datetime
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
@@ -146,9 +148,7 @@ class Parsely:
             stores = [
                 'walmart.com', 'loblaws.ca', 'costco.ca',
                 'instacart.com', 'tntsupermarket.com', 'doordash.com',
-                'ubereats.com', 'skipthedishes.com', 'grubhub.com',
-                'mcdonalds.com', 'kfc.com', 'burgerking.com', 'subway.com',
-                'pizzahut.com', 'dominos.com', 'wendys.com', 'tacobell.com'
+                'ubereats.com', 'skipthedishes.com'
             ]
 
         all_food_emails = []
@@ -156,8 +156,8 @@ class Parsely:
         total_processed = 0
         seen_ids = set()
 
-        # If the user provided an explicit date window, run exactly once.
-        # Otherwise, scan back in non-overlapping 30-day windows for `months`.
+        # explicit date window, run exactly once
+        # else,scan back in non-overlapping 30-day windows for `months`.
         month_offsets = [0] if (start_date and end_date) else range(months)
 
         for month_offset in month_offsets:
@@ -173,7 +173,7 @@ class Parsely:
                     f"from:({store_query})"
                 )
             else:
-                # Non-overlapping 30-day windows: [window_start, window_end]
+               
                 window_end = datetime.date.today() - datetime.timedelta(days=30 * month_offset)
                 window_start = window_end - datetime.timedelta(days=30)
                 window_end_exclusive = window_end + datetime.timedelta(days=1)
@@ -335,6 +335,21 @@ class Parsely:
                 if category == "Grocery":
                     grocery_orders.append(parsed_data)
                     grocery_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)
+                    
+                    order_ts = None
+                    if parsed_data.get('date'):
+                        order_ts = datetime.datetime.strptime(parsed_data["date"], "%Y-%m-%d %H:%M:%S")
+                        print("order_ts value:", order_ts, type(order_ts))
+
+                        order_id = upsert_order({
+                            "gmail_id": gmail_id,
+                            "order_ts": order_ts,
+                            "store_name": parsed_data.get("store_name"),
+                            "category": parsed_data.get("category"),
+                            "from_email": parsed_data.get("from", ""),
+                            "total": (parsed_data.get("totals") or {}).get("total"),
+                        })
+                        replace_order_items(order_id, parsed_data.get("items") or [])
                 elif category == "Dining":
                     dining_orders.append(parsed_data)
                     dining_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)
@@ -391,11 +406,6 @@ class Parsely:
             with open('data/unknown_orders.json', 'w', encoding='utf-8') as f:
                 json.dump(unknown_orders, f, indent=2)
         
-        # # Show summary
-        # print(f"\n Summary:")
-        # print(f"Grocery: {len(grocery_orders)} orders")
-        # print(f"Dining: {len(dining_orders)} orders")
-        # print(f"Unknown: {len(unknown_orders)} orders")
 
 
 if __name__ == "__main__":

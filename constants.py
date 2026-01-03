@@ -1,4 +1,5 @@
 # Constants for email parsing
+# TO DO post finals review
 import re
 
 # Grocery store indicators
