@@ -56,6 +56,7 @@ Parsely/
 4. **Set up MongoDB**
    - Create a MongoDB Atlas cluster
    - Update connection details in `.env` file
+   - (Can skip since moved to postgresql)
 
 ## Usage
 
