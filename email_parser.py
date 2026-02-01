@@ -277,9 +277,7 @@ def extract_grocery_store_name(from_email, subject):
     
     return "Unknown Grocery Store"
 
-# Brand extraction:
-# - brand_method="auto" (default): try spaCy matcher → string-prefix → heuristic
-# - brand_method="spacy": only spaCy matcher (optionally strict)
+
 def extract_brand_and_item(
     product_name,
     from_email="",
@@ -291,7 +289,7 @@ def extract_brand_and_item(
     strict: bool = False,
     return_method: bool = False,
 ):
-    # Normalize unicode apostrophes so "Trader Joe’s" matches "Trader Joe's"
+
     product_name = product_name.translate(_APOS_TRANS)
     product_name_lower = product_name.lower()
 
@@ -304,7 +302,7 @@ def extract_brand_and_item(
         matches = matcher(doc)
         
         if matches:
-            # Get the longest match (most specific brand)
+            
             matches_sorted = sorted(matches, key=lambda x: x[2] - x[1], reverse=True)
             match_id, start, end = matches_sorted[0]
             matched_brand = doc[start:end].text.translate(_APOS_TRANS)
@@ -318,14 +316,14 @@ def extract_brand_and_item(
                         return brand, item_name, "spacy"
                     return brand, item_name
     except Exception as e:
-        # If spaCy fails and we explicitly requested spaCy-only, fail fast (or fall through in auto mode).
+       
         if brand_method == "spacy" and strict:
             raise
 
     if brand_method == "spacy":
         if strict:
             raise ValueError(f"No spaCy brand match for: {product_name!r}")
-        # Non-strict spaCy-only mode: return heuristic fallback but label it, so callers can detect it.
+       
         words = product_name.split()
         if len(words) >= 2:
             brand = words[0].title()
@@ -426,7 +424,6 @@ def parse_email(raw_email, from_email="", subject="", raw_html=""):
     
     category = categorize_order(items, from_email, subject)
 
-    # Extract store name based on category
     store_name = ""
     if category == "Grocery":
         store_name = extract_grocery_store_name(from_email, subject)
