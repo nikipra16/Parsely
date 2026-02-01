@@ -7,14 +7,17 @@ from google.auth.transport.requests import Request
 from google.auth.exceptions import RefreshError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from bs4 import BeautifulSoup
 import json
-import time
-import random
 from email_parser import parse_email
-# from mongo import test_connection, connect_to_mongodb 
-from postgresDB import upsert_order, replace_order_items
+from postgresDB import (
+    upsert_order_with_items,
+    upsert_raw_gmail,
+    pipeline_start,
+    pipeline_end,
+    db_gmail_ids,
+    fetch_raw_gmail_in_range,
+)
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
@@ -105,288 +108,115 @@ class Parsely:
     def is_food_order_email(self, subject, body, from_email):
         subject_lower = subject.lower()
 
-        # promo_keywords = [
-        #     'newsletter', 'unsubscribe', 'marketing', 'advertisement', 'ad',
-        #     'verification code', 'password reset', 'account', 'login',
-        #     'welcome', 'thank you for signing up', 'confirm your email',
-        #     'update your preferences', 'manage your account',
-        #     'rate your experience', 'feedback', 'survey',
-        #     'coming soon', 'announcement', 'new menu launch',
-        #     'dashpass membership', 'membership paused', 'membership cancelled',
-        #     'a world of food awaits', 'explore new restaurants',"discount",
-        #     'no-contact delivery','deals','deal','last chance','cancel','cancelled','issue',
-        #     'Apologies'
-        # ]
-
-        # if any(keyword in subject_lower for keyword in promo_keywords):
-        #     return False
-
         # currently works for doordash and instacart 
         food_keywords = ['order confirmation', 'your instacart order receipt']
 
         if any(keyword in subject_lower for keyword in food_keywords):
             return True
-        return True
+        return False
 
-    # main function
-    def fetch_food_emails(self, months=24, stores=None, limit=100, save_to_file=False, start_date=None, end_date=None):
-        """Fetch Gmail emails in batches of 100, going through multiple months.
-        
-        Args:
-            months: Number of months to go back
-            stores: List of stores to filter by
-            limit: Maximum number of emails to fetch
-            save_to_file: Whether to save raw emails to file
-            start_date: Start date in format 'YYYY-MM-DD' (optional)
-            end_date: End date in format 'YYYY-MM-DD' (optional)
-        """
-        if self.service is None:
-            raise Exception('Authenticate first!')
 
-        if stores is None:
-            # TO DO OPTIMIZE
-            stores = [
-                'walmart.com', 'loblaws.ca', 'costco.ca',
-                'instacart.com', 'tntsupermarket.com', 'doordash.com',
-                'ubereats.com', 'skipthedishes.com'
-            ]
+    def list_food_email_ids(self, *, start_date: str, end_date: str, stores: list[str], limit: int) -> list[str]:
+        start_obj = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+        end_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date() + datetime.timedelta(days=1)
 
-        all_food_emails = []
-        batch_size = 100
-        total_processed = 0
-        seen_ids = set()
+        store_query = " OR ".join(stores)
+        query = (
+            f"after:{start_obj.strftime('%Y/%m/%d')} "
+            f"before:{end_obj.strftime('%Y/%m/%d')} "
+            f"from:({store_query})"
+        )
 
-        # explicit date window, run exactly once
-        # else,scan back in non-overlapping 30-day windows for `months`.
-        month_offsets = [0] if (start_date and end_date) else range(months)
+        ids: list[str] = []
+        seen: set[str] = set()
+        page_token = None
 
-        for month_offset in month_offsets:
-            store_query = " OR ".join(stores)
+        while True and len(ids) < limit:
+            resp = self.service.users().messages().list(
+                userId="me",
+                q=query,
+                maxResults=min(100, limit - len(ids)),
+                pageToken=page_token,
+            ).execute()
 
-            if start_date and end_date:
-                start_date_obj = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
-                end_date_obj = datetime.datetime.strptime(end_date, '%Y-%m-%d').date()
-                print(f"\nProcessing date range: {start_date_obj} to {end_date_obj}")
-                query = (
-                    f"after:{start_date_obj.strftime('%Y/%m/%d')} "
-                    f"before:{end_date_obj.strftime('%Y/%m/%d')} "
-                    f"from:({store_query})"
-                )
-            else:
-               
-                window_end = datetime.date.today() - datetime.timedelta(days=30 * month_offset)
-                window_start = window_end - datetime.timedelta(days=30)
-                window_end_exclusive = window_end + datetime.timedelta(days=1)
+            for msg in resp.get("messages", []) or []:
+                mid = msg.get("id")
+                if mid and mid not in seen:
+                    seen.add(mid)
+                    ids.append(mid)
+                    if len(ids) >= limit:
+                        break
 
-                print(f"\nProcessing month {month_offset + 1}/{months}: {window_start} to {window_end}")
-                query = (
-                    f"after:{window_start.strftime('%Y/%m/%d')} "
-                    f"before:{window_end_exclusive.strftime('%Y/%m/%d')} "
-                    f"from:({store_query})"
-                )
-
-            page_token = None
-            month_emails = []
-            
-            while True:
-                response = self.service.users().messages().list(
-                    userId='me', 
-                    q=query, 
-                    maxResults=batch_size,
-                    pageToken=page_token
-                ).execute()
-                
-                messages = response.get('messages', [])
-                if not messages:
-                    break
-                
-                print(f"  Found {len(messages)} emails in this batch")
-                
-                # Process each email in this batch
-                for msg in messages:
-                    try:
-                        if msg.get("id") in seen_ids:
-                            continue
-
-                        email_data = self.service.users().messages().get(
-                            userId='me',
-                            id=msg['id'],
-                            format='full'
-                        ).execute()
-                        
-                        # Extract email details
-                        from_email = ""
-                        subject = ""
-                        body = self.get_email_body(email_data)
-                        html_body = self.get_email_html(email_data)
-                        
-                        for header in email_data['payload'].get('headers', []):
-                            if header['name'].lower() == 'from':
-                                from_email = header['value']
-                            elif header['name'].lower() == 'subject':
-                                subject = header['value']
-                        
-
-                        if not any(store in from_email for store in stores):
-                            continue
-                        
-
-                        if not self.is_food_order_email(subject, body, from_email):
-                            print(f"  Skipped promotional email: {subject[:50]}...")
-                            continue
-
-                        internal_date = email_data.get("internalDate", "")
-
-                        month_emails.append({
-                            "gmail_id": msg["id"],
-                            "date": internal_date,
-                            "subject": subject,
-                            "from": from_email,
-                            "body": body,
-                            "html_body": html_body
-                        })
-                        seen_ids.add(msg["id"])
-                        total_processed += 1
-                        print(f"  Added food order: {subject[:50]}...")
-                            
-                    except Exception as e:
-                        print(f"  Error processing email {msg['id']}: {e}")
-                        continue
-
-                page_token = response.get('nextPageToken')
-                if not page_token:
-                    break
-            
-            all_food_emails.extend(month_emails)
-            print(f"  Month {month_offset + 1} complete: {len(month_emails)} food emails found")
-
-            if total_processed >= limit:
-                print(f"Reached total limit of {limit} emails")
+            page_token = resp.get("nextPageToken")
+            if not page_token:
                 break
-        
-        print(f"\nTotal food emails found: {len(all_food_emails)}")
-        
-        if save_to_file:
-            with open('data/food_emails.json', 'w', encoding='utf-8') as f:
-                json.dump(all_food_emails, f, indent=2)
-            print(f"Saved {len(all_food_emails)} food emails to data/food_emails.json")
 
-        return all_food_emails
-
-    def parse_and_categorize_emails(self, max_results=400, start_date=None, end_date=None, save_json=False):
-
-        if self.service is None:
-            print("Please authenticate first!")
-            return []
-        
-        # Mongo disabled (Postgres-only mode)
-        # if not test_connection():
-        #     print("Please connect to MongoDB first!")
-        #     return []
-        # client, db = connect_to_mongodb()
-        # if client is None or db is None:
-        #     print("MongoDB connection failed!")
-        #     return []
-        # grocery_collection = db["grocery_og"]
-        # dining_collection = db["dining_orders"]
-        # unknown_collection = db["unknown_orders"]
+        return ids
 
 
-        emails = self.fetch_food_emails(limit=max_results, save_to_file=False, start_date=start_date, end_date=end_date)
-        if not emails:
-            print("No emails found to parse")
-            return []
+    def ensure_raw_gmail_cached(self, *, gmail_ids: list[str]) -> int:
+        """
+        Returns: number of *newly fetched* emails (get/full) inserted into raw_gmail
+        """
+        existing = db_gmail_ids(gmail_ids)
+        missing = [mid for mid in gmail_ids if mid not in existing]
 
-        grocery_orders = []
-        dining_orders = []
-        unknown_orders = []
-        category_counts = {"Grocery": 0, "Dining": 0, "Unknown": 0}
-        
-        for email in emails:
-            try:
-                parsed_data = parse_email(
-                    email['body'], 
-                    from_email=email.get('from', ''), 
-                    subject=email.get('subject', ''),
-                    raw_html=email.get('html_body', '')
-                )
+        newly_fetched = 0
+        for mid in missing:
+            email_data = self.service.users().messages().get(
+                userId="me",
+                id=mid,
+                format="full",
+            ).execute()
 
-                if not parsed_data.get('items'):
-                    print(f"  Skipped email with no items: {email.get('subject', '')[:50]}...")
-                    continue
+            from_email = ""
+            subject = ""
+            for header in email_data.get("payload", {}).get("headers", []) or []:
+                nm = (header.get("name") or "").lower()
+                if nm == "from":
+                    from_email = header.get("value") or ""
+                elif nm == "subject":
+                    subject = header.get("value") or ""
 
-                parsed_data['gmail_id'] = email.get('gmail_id')
-                parsed_data['date'] = email.get('date')
-                parsed_data['from'] = email.get('from', '')
+            internal_date = email_data.get("internalDate")
+            email_ts = None
+            if internal_date:
+                email_ts = datetime.datetime.fromtimestamp(int(internal_date) / 1000, tz=datetime.timezone.utc)
 
-                gmail_id = parsed_data.get("gmail_id")
-                if not gmail_id:
-                    print("  Skipped email with missing gmail_id")
-                    continue
-                
-                category = parsed_data.get('category', 'Unknown')
-                category_counts[category] += 1
-
-                if category == "Grocery":
-                    grocery_orders.append(parsed_data)
-                    # grocery_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)  # Mongo disabled
-                    
-                    # `date` is stored as epoch-ms string (Gmail internalDate)
-                    order_ts = None
-                    raw_date = parsed_data.get('date')
-                    if raw_date:
-                        try:
-                            order_ts = datetime.datetime.fromtimestamp(int(raw_date) / 1000, tz=datetime.timezone.utc)
-                        except Exception:
-                            order_ts = None
-
-                    if order_ts:
-
-                        order_id = upsert_order({
-                            "gmail_id": gmail_id,
-                            "order_ts": order_ts,
-                            "store_name": parsed_data.get("store_name"),
-                            "category": parsed_data.get("category"),
-                            "from_email": parsed_data.get("from", ""),
-                            "total": (parsed_data.get("totals") or {}).get("total"),
-                        })
-                        replace_order_items(order_id, parsed_data.get("items") or [])
-                elif category == "Dining":
-                    dining_orders.append(parsed_data)
-                    # dining_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)  # Mongo disabled
-                else:
-                    unknown_orders.append(parsed_data)
-                    # unknown_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)  # Mongo disabled
-                
-                print(f"Parsed email {email['gmail_id']}: {len(parsed_data['items'])} items - {category}")
-                
-            except Exception as e:
-                print(f"Error parsing email {email['gmail_id']}: {e}")
-                # Add error email with minimal data
-                error_email = {
-                    'items': [],
-                    'totals': {},
-                    'category': 'Unknown',
-                    'store_name': '',
-                    'gmail_id': email['gmail_id'],
-                    'date': email['date'],
-                    'from': email.get('from', ''),
-                    'error': str(e)
+            upsert_raw_gmail(
+                {
+                    "gmail_id": mid,
+                    "date_ts": email_ts,
+                    "subject": subject,
+                    "from_email": from_email,
+                    "body": self.get_email_body(email_data),
+                    "html_body": self.get_email_html(email_data),
                 }
-                unknown_orders.append(error_email)
-                category_counts['Unknown'] += 1
+            )
+            newly_fetched += 1
 
-        if save_json:
-            self.save_orders_to_files(grocery_orders, dining_orders, unknown_orders)
-        
-        print(f"\nParsing complete!")
-        print(f"Category breakdown: {category_counts['Grocery']} Grocery, {category_counts['Dining']} Dining, {category_counts['Unknown']} Unknown")
-        
-        return {
-            "grocery": grocery_orders,
-            "dining": dining_orders,
-            "unknown": unknown_orders
-        }
+        return newly_fetched
+
+
+    def fetch_food_emails_cached(self, *, start_date: str, end_date: str, stores: list[str], limit: int) -> list[dict]:
+        gmail_ids = self.list_food_email_ids(
+            start_date=start_date,
+            end_date=end_date,
+            stores=stores,
+            limit=limit,
+        )
+
+        # only for missing: get(full) → upsert_raw_gmail
+        self.ensure_raw_gmail_cached(gmail_ids=gmail_ids)
+
+        # transforms from postgres
+        return fetch_raw_gmail_in_range(
+            start_date=start_date,
+            end_date=end_date,
+            stores=stores,
+            limit=limit,
+        )
+
 
     def save_orders_to_files(self, grocery_orders, dining_orders, unknown_orders):
         """Save orders to JSON files based on category (grocery or dining)"""
@@ -407,6 +237,200 @@ class Parsely:
         if unknown_orders:
             with open('data/unknown_orders.json', 'w', encoding='utf-8') as f:
                 json.dump(unknown_orders, f, indent=2)
+    
+    def parse_and_categorize_emails(self, max_results=400, start_date=None, end_date=None, save_json=False):
+        if self.service is None:
+            print("Please authenticate first!")
+            return []
+
+        emails = []
+        pipeline_id = None
+
+        grocery_orders = []
+        dining_orders = []
+        unknown_orders = []
+        category_counts = {"Grocery": 0, "Dining": 0, "Unknown": 0}
+
+        emails_loaded = 0
+        grocery_orders_upserted = 0
+        grocery_orders_with_total = 0
+
+        status = "success"
+        err = None
+
+        try:
+            # emails = self.fetch_food_emails(
+            #     limit=max_results,
+            #     save_to_file=False,
+            #     start_date=start_date,
+            #     end_date=end_date,
+            # )
+            emails = self.fetch_food_emails_cached(
+                start_date=start_date,
+                end_date=end_date,
+                stores=[
+                    "walmart.com",
+                    "loblaws.ca",
+                    "costco.ca",
+                    "instacart.com",
+                    "tntsupermarket.com",
+                    "doordash.com",
+                    "ubereats.com",
+                    "skipthedishes.com",
+                ],
+                limit=max_results,
+            )
+            if not emails:
+                print("No emails found to parse")
+                return []
+
+            pipeline_id = pipeline_start(
+                start_date=start_date,
+                end_date=end_date,
+                limit_emails=max_results,
+            )
+
+            for email in emails:
+                raw_date = email.get("date")
+                email_ts = None
+                if raw_date:
+                    email_ts = datetime.datetime.fromtimestamp(int(raw_date) / 1000, tz=datetime.timezone.utc)
+
+                upsert_raw_gmail(
+                    {
+                        "gmail_id": email.get("gmail_id"),
+                        "date_ts": email_ts,
+                        "subject": email.get("subject"),
+                        "from_email": email.get("from", ""),
+                        "body": email.get("body", ""),
+                        "html_body": email.get("html_body", ""),
+                    }
+                )
+                emails_loaded += 1
+
+                try:
+                    if not self.is_food_order_email(
+                        email.get("subject", ""),
+                        email.get("body", ""),
+                        email.get("from", ""),
+                    ):
+                        continue
+
+                    parsed_data = parse_email(
+                        email["body"],
+                        from_email=email.get("from", ""),
+                        subject=email.get("subject", ""),
+                        raw_html=email.get("html_body", ""),
+                    )
+
+                    if not parsed_data.get("items"):
+                        print(f"  Skipped email with no items: {email.get('subject', '')[:50]}...")
+                        continue
+
+                    parsed_data["gmail_id"] = email.get("gmail_id")
+                    parsed_data["date"] = email.get("date")
+                    parsed_data["from"] = email.get("from", "")
+
+                    gmail_id = parsed_data.get("gmail_id")
+                    if not gmail_id:
+                        print("  Skipped email with missing gmail_id")
+                        continue
+
+                    category = parsed_data.get("category", "Unknown")
+                    category_counts[category] += 1
+
+                    if category == "Grocery":
+                        grocery_orders.append(parsed_data)
+
+                        # `date` is stored as epoch-ms string (Gmail internalDate)
+                        order_ts = None
+                        raw_date = parsed_data.get("date")
+                        if raw_date:
+                            try:
+                                order_ts = datetime.datetime.fromtimestamp(
+                                    int(raw_date) / 1000,
+                                    tz=datetime.timezone.utc,
+                                )
+                            except Exception:
+                                order_ts = None
+
+                        if order_ts:
+                            total_val = (parsed_data.get("totals") or {}).get("total")
+                            if total_val is not None:
+                                grocery_orders_with_total += 1
+
+                            # Atomic load: order + items in one transaction
+                            upsert_order_with_items(
+                                {
+                                    "gmail_id": gmail_id,
+                                    "order_ts": order_ts,
+                                    "store_name": parsed_data.get("store_name"),
+                                    "category": parsed_data.get("category"),
+                                    "from_email": parsed_data.get("from", ""),
+                                    "total": total_val,
+                                },
+                                parsed_data.get("items") or [],
+                            )
+                            grocery_orders_upserted += 1
+
+                    elif category == "Dining":
+                        dining_orders.append(parsed_data)
+                    else:
+                        unknown_orders.append(parsed_data)
+
+                    print(f"Parsed email {email['gmail_id']}: {len(parsed_data['items'])} items - {category}")
+
+                except Exception as e:
+                    print(f"Error parsing email {email['gmail_id']}: {e}")
+                    error_email = {
+                        "items": [],
+                        "totals": {},
+                        "category": "Unknown",
+                        "store_name": "",
+                        "gmail_id": email["gmail_id"],
+                        "date": email["date"],
+                        "from": email.get("from", ""),
+                        "error": str(e),
+                    }
+                    unknown_orders.append(error_email)
+                    category_counts["Unknown"] += 1
+
+            if grocery_orders_upserted:
+                total_completeness_pct = (grocery_orders_with_total / grocery_orders_upserted) * 100
+                print(
+                    f"Total completeness: {grocery_orders_with_total}/{grocery_orders_upserted} "
+                    f"({total_completeness_pct:.1f}%)"
+                )
+
+            if save_json:
+                self.save_orders_to_files(grocery_orders, dining_orders, unknown_orders)
+
+            print("\nParsing complete!")
+            print(
+                f"Category breakdown: {category_counts['Grocery']} Grocery, "
+                f"{category_counts['Dining']} Dining, {category_counts['Unknown']} Unknown"
+            )
+
+            return {"grocery": grocery_orders, "dining": dining_orders, "unknown": unknown_orders}
+
+        except Exception as e:
+            status = "failed"
+            err = str(e)
+            raise
+
+        finally:
+            if pipeline_id is not None:
+                grocery_orders_missing_total = grocery_orders_upserted - grocery_orders_with_total
+                pipeline_end(
+                    run_id=pipeline_id,
+                    emails_loaded=emails_loaded,
+                    emails_fetched=len(emails) if emails else 0,
+                    orders_upserted=grocery_orders_upserted,
+                    orders_with_total=grocery_orders_with_total,
+                    orders_missing_total=grocery_orders_missing_total,
+                    status=status,
+                    error=err,
+                )
         
 
 

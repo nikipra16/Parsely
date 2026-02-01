@@ -86,6 +86,8 @@ def clean_email_text(raw_email):
             break
     return clean_email
 
+
+
 def extract_instacart_items(html_email, subject=""):
     items = []
     totals = {}
@@ -210,7 +212,10 @@ def extract_items(cleaned_email, from_email="", subject="", raw_html=""):
         else:
             # For grocery orders, use existing logic
             doc = get_nlp()(name)
-            product_name = " ".join([t.text for t in doc if not t.is_punct])
+            
+            product_name = " ".join([t.text for t in doc if not t.is_punct or t.text == "'"])
+            
+            product_name = APOSTROPHE_PATTERN.sub(r"\1'\2", product_name)
             brand, item_name = extract_brand_and_item(product_name)
         
         items.append({

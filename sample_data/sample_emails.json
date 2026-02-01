@@ -1,0 +1,89 @@
+[
+  {
+    "gmail_id": "demo_0001a9f3c2d4e5f6",
+    "date": "1767417600000",
+    "subject": "Your Instacart order receipt",
+    "from": "Instacart <no-reply@instacart.com>",
+    "body": "Thanks for your order.\n1x Organic Bananas\n$1.29\n2x Whole Milk 2L\n$4.49\n1x Free-Run Eggs 12ct\n$5.99\nSubtotal $16.26\nTaxes $0.81\nTotal Charged $17.07\n",
+    "html_body": "<html><body><div class='item-name'>Organic Bananas 1 x $1.29</div><div class='item-name'>Whole Milk 2L 2 x $4.49</div><div class='item-name'>Free-Run Eggs 12ct 1 x $5.99</div><table><tr><td>Total</td><td>$17.07</td></tr></table></body></html>"
+  },
+  {
+    "gmail_id": "demo_0002b1c2d3e4f5a6",
+    "date": "1767504000000",
+    "subject": "Walmart Grocery Pickup - Order Confirmation",
+    "from": "Walmart <orders@walmart.com>",
+    "body": "Order confirmed.\n2x Roma Tomatoes 1lb\n$2.98\n1x Basmati Rice 5lb\n$12.49\n3x Greek Yogurt 0% 750g\n$5.49\nSubtotal $31.94\nTaxes $1.60\nTotal Charged $33.54\n"
+  },
+  {
+    "gmail_id": "demo_0003c7d8e9f0a1b2",
+    "date": "1767590400000",
+    "subject": "PC Express - Your order is ready",
+    "from": "PC Express <no-reply@pcexpress.ca>",
+    "body": "Order summary\n1x President's Choice Peanut Butter 1kg\n$6.99\n1x Whole Wheat Bread\n$3.49\n2x Frozen Mixed Berries 600g\n$7.99\nSubtotal $26.46\nTaxes $1.32\nTotal Charged $27.78\n"
+  },
+  {
+    "gmail_id": "demo_0004d0e1f2a3b4c5",
+    "date": "1767676800000",
+    "subject": "DoorDash: Grocery order confirmed (Save-On-Foods)",
+    "from": "DoorDash Order <no-reply@doordash.com>",
+    "body": "Your receipt\n1x Chicken Breast 1.2kg\n$13.49\n1x Baby Spinach 300g\n$3.99\n2x Sparkling Water 12pk\n$6.49\nSubtotal $30.46\nTaxes $1.52\nService Fee $1.10\nTotal Charged $33.08\n"
+  },
+  {
+    "gmail_id": "demo_0005e6f7a8b9c0d1",
+    "date": "1767763200000",
+    "subject": "Costco Online Order Confirmation",
+    "from": "Costco <orders@costco.ca>",
+    "body": "Thank you for your purchase.\n1x Olive Oil 2L\n$19.99\n1x Paper Towels 12-roll\n$24.99\n1x Atlantic Salmon 1kg\n$29.99\nSubtotal $74.97\nTaxes $3.75\nTotal Charged $78.72\n"
+  },
+  {
+    "gmail_id": "demo_0006f1e2d3c4b5a6",
+    "date": "1767849600000",
+    "subject": "T&T Supermarket - Order Confirmation",
+    "from": "T&T Supermarket <orders@tntsupermarket.com>",
+    "body": "Order details\n2x Jasmine Rice 8kg\n$17.99\n1x Soy Sauce 1L\n$4.99\n3x Green Onions\n$0.79\nSubtotal $43.34\nTaxes $2.17\nTotal Charged $45.51\n"
+  },
+  {
+    "gmail_id": "demo_0007a0b1c2d3e4f5",
+    "date": "1767936000000",
+    "subject": "Loblaws - Your order confirmation",
+    "from": "Loblaws <orders@loblaws.ca>",
+    "body": "Order confirmation\n1x Avocados (bag)\n$6.99\n1x Ground Coffee 340g\n$9.49\n2x Cheddar Cheese 400g\n$7.99\nSubtotal $32.46\nTaxes $1.62\nTotal Charged $34.08\n"
+  },
+  {
+    "gmail_id": "demo_0008b2c3d4e5f6a7",
+    "date": "1768022400000",
+    "subject": "FreshCo - Order Receipt",
+    "from": "FreshCo <no-reply@freshco.com>",
+    "body": "Receipt\n4x Canned Chickpeas\n$1.29\n1x Olive Oil Spray\n$4.99\n2x Pasta 900g\n$2.49\nSubtotal $15.13\nTaxes $0.76\nTotal Charged $15.89\n"
+  },
+  {
+    "gmail_id": "demo_0009c3d4e5f6a7b8",
+    "date": "1768108800000",
+    "subject": "Metro - Your online grocery receipt",
+    "from": "Metro <orders@metro.ca>",
+    "body": "Receipt details\n1x Salmon Fillet\n$12.99\n2x Lemons\n$0.89\n1x Baby Potatoes 3lb\n$4.49\nSubtotal $20.26\nTaxes $1.01\nTotal Charged $21.27\n"
+  },
+  {
+    "gmail_id": "demo_0010d4e5f6a7b8c9",
+    "date": "1768195200000",
+    "subject": "Sobeys - Order Confirmation",
+    "from": "Sobeys <orders@sobeys.com>",
+    "body": "Order confirmation\n1x Chicken Thighs\n$10.49\n1x Long-Grain Rice 2kg\n$6.49\n2x Frozen Peas 750g\n$3.99\nSubtotal $25.95\nTaxes $1.30\nTotal Charged $27.25\n"
+  },
+  {
+    "gmail_id": "demo_0011e5f6a7b8c9d0",
+    "date": "1768281600000",
+    "subject": "Instacart - Updated receipt (substitution)",
+    "from": "Instacart <no-reply@instacart.com>",
+    "body": "Your updated receipt.\n1x Strawberries 1lb\n$4.99\n1x Almond Milk 1.75L\n$3.79\n2x Whole Wheat Tortillas\n$3.49\nSubtotal $15.76\nTaxes $0.79\nTotal Charged $16.55\n",
+    "html_body": "<html><body><div class='item-name'>Strawberries 1lb 1 x $4.99</div><div class='item-name'>Almond Milk 1.75L 1 x $3.79</div><div class='item-name'>Whole Wheat Tortillas 2 x $3.49</div><table><tr><td>Total charged (CAD)</td><td>$16.55</td></tr></table></body></html>"
+  },
+  {
+    "gmail_id": "demo_0012f6a7b8c9d0e1",
+    "date": "1768368000000",
+    "subject": "DoorDash: Grocery order confirmed (No Frills)",
+    "from": "DoorDash Order <no-reply@doordash.com>",
+    "body": "Order receipt\n1x Gala Apples 3lb\n$5.99\n2x Peanut Butter 500g\n$4.49\n1x Dish Soap\n$3.29\nSubtotal $18.26\nTaxes $0.91\nService Fee $0.95\nTotal Charged $20.12\n"
+  }
+]
+
