@@ -17,6 +17,18 @@ _grocery_brands = None
 _processed_brands = None
 _brand_matcher = None
 
+# Normalize common unicode punctuation variants so brand matching is consistent.
+# (Use inline `.translate(_APOS_TRANS)` where needed; no helper fn.)
+_APOS_TRANS = str.maketrans(
+    {
+        "\u2018": "'",  # left single quote
+        "\u2019": "'",  # right single quote
+        "\u201b": "'",  # single high-reversed-9 quote
+        "\u2032": "'",  # prime
+        "`": "'",       # grave accent
+    }
+)
+
 def get_nlp():
     global _nlp
     if _nlp is None:
@@ -52,7 +64,8 @@ def get_brand_matcher():
         # Add each brand as a pattern
         for brand in sorted_brands:
             # Tokenize brand using spaCy to get actual token structure
-            brand_doc = nlp(brand)
+            brand_norm = brand.translate(_APOS_TRANS)
+            brand_doc = nlp(brand_norm)
             # Create pattern from actual tokens (handles apostrophes correctly)
             pattern = [{"LOWER": token.lower_} for token in brand_doc]
             _brand_matcher.add("BRAND", [pattern])
@@ -264,11 +277,26 @@ def extract_grocery_store_name(from_email, subject):
     
     return "Unknown Grocery Store"
 
-def extract_brand_and_item(product_name, from_email="", subject="", is_dining=False, restaurant_name=""):
+# Brand extraction:
+# - brand_method="auto" (default): try spaCy matcher → string-prefix → heuristic
+# - brand_method="spacy": only spaCy matcher (optionally strict)
+def extract_brand_and_item(
+    product_name,
+    from_email="",
+    subject="",
+    is_dining=False,
+    restaurant_name="",
+    *,
+    brand_method: str = "auto",
+    strict: bool = False,
+    return_method: bool = False,
+):
+    # Normalize unicode apostrophes so "Trader Joe’s" matches "Trader Joe's"
+    product_name = product_name.translate(_APOS_TRANS)
     product_name_lower = product_name.lower()
-    
+
     if is_dining and restaurant_name:
-        return restaurant_name, product_name
+        return (restaurant_name, product_name, "dining") if return_method else (restaurant_name, product_name)
 
     try:
         doc = get_nlp()(product_name)
@@ -278,27 +306,46 @@ def extract_brand_and_item(product_name, from_email="", subject="", is_dining=Fa
         if matches:
             # Get the longest match (most specific brand)
             matches_sorted = sorted(matches, key=lambda x: x[2] - x[1], reverse=True)
-            start, end, label_id = matches_sorted[0]
-            matched_brand = doc[start:end].text
+            match_id, start, end = matches_sorted[0]
+            matched_brand = doc[start:end].text.translate(_APOS_TRANS)
             
             sorted_brands = get_processed_brands()
             for brand in sorted_brands:
-                if brand.lower() == matched_brand.lower():
+                if brand.translate(_APOS_TRANS).lower() == matched_brand.lower():
                     brand_length = len(matched_brand)
                     item_name = product_name[brand_length:].strip()
+                    if return_method:
+                        return brand, item_name, "spacy"
                     return brand, item_name
     except Exception as e:
-        pass
+        # If spaCy fails and we explicitly requested spaCy-only, fail fast (or fall through in auto mode).
+        if brand_method == "spacy" and strict:
+            raise
+
+    if brand_method == "spacy":
+        if strict:
+            raise ValueError(f"No spaCy brand match for: {product_name!r}")
+        # Non-strict spaCy-only mode: return heuristic fallback but label it, so callers can detect it.
+        words = product_name.split()
+        if len(words) >= 2:
+            brand = words[0].title()
+            item_name = " ".join(words[1:]).title()
+        else:
+            brand = "Unknown"
+            item_name = product_name.title()
+        return (brand, item_name, "heuristic") if return_method else (brand, item_name)
 
     sorted_brands = get_processed_brands()
     
     for brand in sorted_brands:
-        brand_normalized = brand.lower().replace("'", "'").replace("'", "'").replace("`", "'")
-        product_normalized = product_name_lower.replace("'", "'").replace("'", "'").replace("`", "'")
+        brand_normalized = brand.translate(_APOS_TRANS).lower()
+        product_normalized = product_name_lower
         
         if product_normalized.startswith(brand_normalized):
             brand_length = len(brand)
             item_name = product_name[brand_length:].strip()
+            if return_method:
+                return brand, item_name, "string_prefix"
             return brand, item_name
     
     words = product_name.split()
@@ -309,7 +356,7 @@ def extract_brand_and_item(product_name, from_email="", subject="", is_dining=Fa
         brand = "Unknown"
         item_name = product_name.title()
     
-    return brand, item_name
+    return (brand, item_name, "heuristic") if return_method else (brand, item_name)
 
 
 def extract_totals(cleaned_email):

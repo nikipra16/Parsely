@@ -2,16 +2,19 @@ import os
 import pickle
 import datetime
 import base64
+import argparse
 from google.auth.transport.requests import Request
 from google.auth.exceptions import RefreshError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from bs4 import BeautifulSoup
 import json
+import time
+import random
 from email_parser import parse_email
-from mongo import test_connection, connect_to_mongodb
+# from mongo import test_connection, connect_to_mongodb 
 from postgresDB import upsert_order, replace_order_items
-import datetime
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
@@ -20,10 +23,6 @@ class Parsely:
         self.cred_file = cred_file
         self.token_file = token_file
         self.service = None
-        self.store_names = [
-            'walmart', 'save-on-foods', 'freshco', 'loblaws', 'costco', 
-            'tnt', 'superstore', 'no frills', 'metro', 'sobeys', 'pc express'
-        ]
 
     def authenticate(self):
         creds = None
@@ -106,25 +105,26 @@ class Parsely:
     def is_food_order_email(self, subject, body, from_email):
         subject_lower = subject.lower()
 
-        promo_keywords = [
-            'newsletter', 'unsubscribe', 'marketing', 'advertisement', 'ad',
-            'verification code', 'password reset', 'account', 'login',
-            'welcome', 'thank you for signing up', 'confirm your email',
-            'update your preferences', 'manage your account',
-            'rate your experience', 'feedback', 'survey',
-            'coming soon', 'announcement', 'new menu launch',
-            'dashpass membership', 'membership paused', 'membership cancelled',
-            'a world of food awaits', 'explore new restaurants',"discount",
-            'no-contact delivery','deals','deal','last chance','cancel','cancelled','issue',
-            'Apologies'
-        ]
+        # promo_keywords = [
+        #     'newsletter', 'unsubscribe', 'marketing', 'advertisement', 'ad',
+        #     'verification code', 'password reset', 'account', 'login',
+        #     'welcome', 'thank you for signing up', 'confirm your email',
+        #     'update your preferences', 'manage your account',
+        #     'rate your experience', 'feedback', 'survey',
+        #     'coming soon', 'announcement', 'new menu launch',
+        #     'dashpass membership', 'membership paused', 'membership cancelled',
+        #     'a world of food awaits', 'explore new restaurants',"discount",
+        #     'no-contact delivery','deals','deal','last chance','cancel','cancelled','issue',
+        #     'Apologies'
+        # ]
 
-        if any(keyword in subject_lower for keyword in promo_keywords):
-            return False
+        # if any(keyword in subject_lower for keyword in promo_keywords):
+        #     return False
 
+        # currently works for doordash and instacart 
         food_keywords = ['order confirmation', 'your instacart order receipt']
 
-        if any(keyword in subject_lower for keyword in promo_keywords):
+        if any(keyword in subject_lower for keyword in food_keywords):
             return True
         return True
 
@@ -236,15 +236,10 @@ class Parsely:
                             continue
 
                         internal_date = email_data.get("internalDate", "")
-                        if internal_date:
-                            timestamp = int(internal_date) / 1000
-                            readable_date = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                        else:
-                            readable_date = ""
 
                         month_emails.append({
                             "gmail_id": msg["id"],
-                            "date": readable_date,
+                            "date": internal_date,
                             "subject": subject,
                             "from": from_email,
                             "body": body,
@@ -278,23 +273,23 @@ class Parsely:
 
         return all_food_emails
 
-    def parse_and_categorize_emails(self, max_results=400, start_date=None, end_date=None):
+    def parse_and_categorize_emails(self, max_results=400, start_date=None, end_date=None, save_json=False):
 
         if self.service is None:
             print("Please authenticate first!")
             return []
         
-        if not test_connection():
-            print("Please connect to MongoDB first!")
-            return []
-        client, db = connect_to_mongodb()
-        if client is None or db is None:
-            print("MongoDB connection failed!")
-            return []
-
-        grocery_collection = db["grocery_og"]
-        dining_collection = db["dining_orders"]
-        unknown_collection = db["unknown_orders"]
+        # Mongo disabled (Postgres-only mode)
+        # if not test_connection():
+        #     print("Please connect to MongoDB first!")
+        #     return []
+        # client, db = connect_to_mongodb()
+        # if client is None or db is None:
+        #     print("MongoDB connection failed!")
+        #     return []
+        # grocery_collection = db["grocery_og"]
+        # dining_collection = db["dining_orders"]
+        # unknown_collection = db["unknown_orders"]
 
 
         emails = self.fetch_food_emails(limit=max_results, save_to_file=False, start_date=start_date, end_date=end_date)
@@ -334,12 +329,18 @@ class Parsely:
 
                 if category == "Grocery":
                     grocery_orders.append(parsed_data)
-                    grocery_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)
+                    # grocery_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)  # Mongo disabled
                     
+                    # `date` is stored as epoch-ms string (Gmail internalDate)
                     order_ts = None
-                    if parsed_data.get('date'):
-                        order_ts = datetime.datetime.strptime(parsed_data["date"], "%Y-%m-%d %H:%M:%S")
-                        print("order_ts value:", order_ts, type(order_ts))
+                    raw_date = parsed_data.get('date')
+                    if raw_date:
+                        try:
+                            order_ts = datetime.datetime.fromtimestamp(int(raw_date) / 1000, tz=datetime.timezone.utc)
+                        except Exception:
+                            order_ts = None
+
+                    if order_ts:
 
                         order_id = upsert_order({
                             "gmail_id": gmail_id,
@@ -352,10 +353,10 @@ class Parsely:
                         replace_order_items(order_id, parsed_data.get("items") or [])
                 elif category == "Dining":
                     dining_orders.append(parsed_data)
-                    dining_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)
+                    # dining_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)  # Mongo disabled
                 else:
                     unknown_orders.append(parsed_data)
-                    unknown_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)
+                    # unknown_collection.replace_one({"gmail_id": gmail_id}, parsed_data, upsert=True)  # Mongo disabled
                 
                 print(f"Parsed email {email['gmail_id']}: {len(parsed_data['items'])} items - {category}")
                 
@@ -375,7 +376,8 @@ class Parsely:
                 unknown_orders.append(error_email)
                 category_counts['Unknown'] += 1
 
-        self.save_orders_to_files(grocery_orders, dining_orders, unknown_orders)
+        if save_json:
+            self.save_orders_to_files(grocery_orders, dining_orders, unknown_orders)
         
         print(f"\nParsing complete!")
         print(f"Category breakdown: {category_counts['Grocery']} Grocery, {category_counts['Dining']} Dining, {category_counts['Unknown']} Unknown")
@@ -409,6 +411,13 @@ class Parsely:
 
 
 if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="Parsely Gmail receipt ETL → PostgreSQL")
+    p.add_argument("--start-date", dest="start_date", default="2025-12-05", help="YYYY-MM-DD (inclusive)")
+    p.add_argument("--end-date", dest="end_date", default="2025-12-23", help="YYYY-MM-DD (inclusive)")
+    p.add_argument("--limit", dest="max_results", type=int, default=400, help="Max emails to fetch")
+    p.add_argument("--save-json", action="store_true", help="Also write parsed outputs to data/*.json (optional)")
+    args = p.parse_args()
+
     parsely = Parsely()
     parsely.authenticate()
 
@@ -418,9 +427,10 @@ if __name__ == "__main__":
     #     end_date="2025-04-05"
     # )
     results = parsely.parse_and_categorize_emails(
-        max_results=400,
-        start_date="2025-12-05",
-        end_date="2025-12-23"
+        max_results=args.max_results,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        save_json=args.save_json,
     )
 
     if results:
@@ -433,10 +443,6 @@ if __name__ == "__main__":
         
         # Find the earliest date processed
         all_orders = grocery_orders + dining_orders + unknown_orders
-        if all_orders:
-            all_orders.sort(key=lambda x: x.get('date', ''), reverse=False)  # Sort ascending for earliest
-            earliest_date = all_orders[0].get('date', 'Unknown')
-            print(f"\nEARLIEST EMAIL DATE PROCESSED: {earliest_date}")
         
         print(f"\nProcessing Complete!")
         print(f"Total items parsed: {total_items}")
